@@ -27,6 +27,14 @@ exports.bookEvent = async (req, res) => {
             return res.status(400).json({ message: 'Invalid or expired OTP for booking' });
         }
 
+        // Check if expired (older than 2 minutes)
+        const now = new Date();
+        const expirationTime = new Date(validOTP.createdAt.getTime() + 2 * 60 * 1000);
+        if (now > expirationTime) {
+            await OTP.deleteOne({ _id: validOTP._id });
+            return res.status(400).json({ message: 'Invalid or expired OTP for booking' });
+        }
+
         const event = await Event.findById(eventId);
         if (!event) return res.status(404).json({ message: 'Event not found' });
         if (event.availableSeats <= 0) return res.status(400).json({ message: 'No seats available' });
@@ -69,13 +77,47 @@ exports.confirmBooking = async (req, res) => {
         if (paymentStatus) {
             booking.paymentStatus = paymentStatus;
         }
+
+        // Generate seat number and unique booking/ticket code
+        const confirmedCount = await Booking.countDocuments({ eventId: booking.eventId._id, status: 'confirmed' });
+        booking.seatNumber = (confirmedCount + 1).toString();
+
+        const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const bookingIdSuffix = booking._id.toString().substring(20).toUpperCase();
+        booking.ticketCode = `TKT-${randomStr}-${bookingIdSuffix}`;
+
         await booking.save();
 
         event.availableSeats -= 1;
         await event.save();
 
         // Send email on admin confirmation
-        await sendBookingEmail(booking.userId.email, booking.userId.name, booking.eventId.title);
+        if (booking.userId && booking.eventId) {
+            const dateObj = new Date(booking.eventId.date);
+            const eventDate = dateObj.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            const eventTime = dateObj.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+
+            await sendBookingEmail({
+                userEmail: booking.userId.email,
+                userName: booking.userId.name,
+                eventTitle: booking.eventId.title,
+                seatNumber: booking.seatNumber,
+                eventDate,
+                eventTime,
+                ticketCode: booking.ticketCode,
+                eventImage: booking.eventId.image,
+                eventLocation: booking.eventId.location
+            });
+        }
 
         res.json({ message: 'Booking confirmed successfully', booking });
     } catch (error) {

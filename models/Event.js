@@ -8,7 +8,7 @@ const eventSchema = new mongoose.Schema({
     category: { type: String, required: true },
     totalSeats: { type: Number, required: true },
     availableSeats: { type: Number, required: true },
-    imageUrl: { type: String, required: true },
+    image: { type: String, required: true },
     ticketPrice: { type: Number, required: true, default: 0 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });

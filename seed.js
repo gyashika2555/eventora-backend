@@ -3,7 +3,7 @@ const dotenv = require('dotenv');
 const bcrypt = require('bcryptjs');
 const User = require('./models/User');
 const Event = require('./models/Event');
-const Booking = require('./models/Booking');
+const Booking = require('./models/bookings');
 
 dotenv.config();
 
@@ -119,6 +119,8 @@ const seedDatabase = async () => {
         // Generate Bookings Data
         const bookingsData = [];
 
+        const eventConfirmedCounters = {};
+
         for (const event of createdEvents) {
             // Assign 3-6 random users to each event
             const randomCount = Math.floor(Math.random() * 4) + 3;
@@ -139,19 +141,34 @@ const seedDatabase = async () => {
                     paymentStatus = 'paid';
                 }
 
+                let seatNumber = undefined;
+                let ticketCode = undefined;
+
+                if (status === 'confirmed') {
+                    event.availableSeats -= 1;
+                    await event.save();
+
+                    const eventIdStr = event._id.toString();
+                    if (!eventConfirmedCounters[eventIdStr]) {
+                        eventConfirmedCounters[eventIdStr] = 0;
+                    }
+                    eventConfirmedCounters[eventIdStr]++;
+                    seatNumber = eventConfirmedCounters[eventIdStr].toString();
+
+                    const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+                    const randomSuffix = Math.floor(1000 + Math.random() * 9000).toString();
+                    ticketCode = `TKT-${randomStr}-${randomSuffix}`;
+                }
+
                 bookingsData.push({
                     userId: user._id,
                     eventId: event._id,
                     status: status,
                     paymentStatus: paymentStatus,
-                    amount: event.ticketPrice
+                    amount: event.ticketPrice,
+                    seatNumber,
+                    ticketCode
                 });
-
-                // Deduct available seats specifically for confirmed tickets!
-                if (status === 'confirmed') {
-                    event.availableSeats -= 1;
-                    await event.save();
-                }
             }
         }
 

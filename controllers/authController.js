@@ -95,6 +95,14 @@ exports.verifyOtp = async (req, res) =>{
          return res.status(400).json({error: 'Invalid or expired OTP'});
       }
 
+      // Check if expired (older than 2 minutes)
+      const now = new Date();
+      const expirationTime = new Date(otpRecord.createdAt.getTime() + 2 * 60 * 1000);
+      if (now > expirationTime) {
+         await OTP.deleteOne({ _id: otpRecord._id });
+         return res.status(400).json({error: 'Invalid or expired OTP'});
+      }
+
       const user =  await User.findOneAndUpdate(
          {email},
          {isVerified : true},
@@ -116,6 +124,74 @@ exports.verifyOtp = async (req, res) =>{
       ); 
    } catch (error) {
       console.error('Error in verifyOtp:', error);
+      res.status(500).json({ error: error.message || 'Server Error' });
+   }
+};
+
+// Forgot Password
+exports.forgotPassword = async (req, res) => {
+   try {
+      const { email } = req.body;
+      if (!email) {
+         return res.status(400).json({ error: 'Email is required' });
+      }
+
+      const user = await User.findOne({ email });
+      if (!user) {
+         return res.status(404).json({ error: 'No user found with this email address' });
+      }
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      console.log(`Password reset OTP for ${email}: ${otp}`);
+      await OTP.deleteMany({ email, action: 'password_reset' });
+      await OTP.create({ email, otp, action: 'password_reset' });
+      await sendOTPEmail(email, otp, 'password_reset');
+
+      res.json({ message: 'Password reset code has been sent to your email.' });
+   } catch (error) {
+      console.error('Error in forgotPassword:', error);
+      res.status(500).json({ error: error.message || 'Server Error' });
+   }
+};
+
+// Reset Password
+exports.resetPassword = async (req, res) => {
+   try {
+      const { email, otp, newPassword } = req.body;
+      if (!email || !otp || !newPassword) {
+         return res.status(400).json({ error: 'Email, OTP, and new password are required' });
+      }
+
+      const otpRecord = await OTP.findOne({ email, otp, action: 'password_reset' });
+      if (!otpRecord) {
+         return res.status(400).json({ error: 'Invalid or expired OTP' });
+      }
+
+      // Check if expired (older than 2 minutes)
+      const now = new Date();
+      const expirationTime = new Date(otpRecord.createdAt.getTime() + 2 * 60 * 1000);
+      if (now > expirationTime) {
+         await OTP.deleteOne({ _id: otpRecord._id });
+         return res.status(400).json({ error: 'Invalid or expired OTP' });
+      }
+
+      const user = await User.findOne({ email });
+      if (!user) {
+         return res.status(404).json({ error: 'User not found' });
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+      user.password = hashedPassword;
+      user.isVerified = true;
+      await user.save();
+
+      await OTP.deleteMany({ email, action: 'password_reset' });
+
+      res.json({ message: 'Password has been reset successfully. You can now log in.' });
+   } catch (error) {
+      console.error('Error in resetPassword:', error);
       res.status(500).json({ error: error.message || 'Server Error' });
    }
 };
